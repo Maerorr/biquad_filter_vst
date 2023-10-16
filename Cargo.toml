@@ -1,5 +1,5 @@
 [package]
-name = "maeror_filter"
+name = "biquad_filter"
 version = "0.1.0"
 edition = "2021"
 authors = ["236587&236598"]

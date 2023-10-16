@@ -14,12 +14,14 @@ mod filter;
 
 const MAX_BLOCK_SIZE: usize = 64;
 
-struct MaerorChorus {
-    params: Arc<MaerorFilterParams>,
+struct FilterPlugin {
+    params: Arc<FilterPluginParams>,
     sample_rate: f32,
     filter: filter::BiquadFilter,
     prev_filter_type : filter::FilterType,
     scratch_buffer: ScratchBuffer,
+
+    output_hpf: filter::BiquadFilter,
 }
 
 struct ScratchBuffer {
@@ -39,7 +41,7 @@ impl Default for ScratchBuffer {
 }
 
 #[derive(Params)]
-struct MaerorFilterParams {
+struct FilterPluginParams {
     #[persist = "editor-state"]
     editor_state: Arc<ViziaState>,
 
@@ -56,19 +58,20 @@ struct MaerorFilterParams {
     gain: FloatParam,
 }
 
-impl Default for MaerorChorus {
+impl Default for FilterPlugin {
     fn default() -> Self {
         Self {
-            params: Arc::new(MaerorFilterParams::default()),
+            params: Arc::new(FilterPluginParams::default()),
             sample_rate: 44100.0,
             filter: filter::BiquadFilter::new(),
             prev_filter_type: filter::FilterType::LowPass1,
             scratch_buffer: ScratchBuffer::default(),
+            output_hpf: filter::BiquadFilter::new(),
         }
     }
 }
 
-impl Default for MaerorFilterParams {
+impl Default for FilterPluginParams {
     fn default() -> Self {
         Self {
             editor_state: editor::default_state(),
@@ -106,8 +109,8 @@ impl Default for MaerorFilterParams {
     }
 }
 
-impl Plugin for MaerorChorus {
-    const NAME: &'static str = "maeror_filter";
+impl Plugin for FilterPlugin {
+    const NAME: &'static str = "tsk biquad filter";
     const VENDOR: &'static str = "236587 & 236598";
     const URL: &'static str = "none";
     const EMAIL: &'static str = "none";
@@ -150,6 +153,8 @@ impl Plugin for MaerorChorus {
         self.sample_rate = _buffer_config.sample_rate as f32;
 
         self.filter.set_sample_rate(self.sample_rate);
+        self.output_hpf.set_sample_rate(self.sample_rate);
+        self.output_hpf.coefficients(FilterType::HighPass2, 25.0, 0.707, 1.0);
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
@@ -173,9 +178,9 @@ impl Plugin for MaerorChorus {
             
             let filter_type = self.params.filter_type.value();
 
-            let mut cutoff = &mut self.scratch_buffer.cutoff;
-            let mut resonance = &mut self.scratch_buffer.resonance;
-            let mut gain = &mut self.scratch_buffer.gain;
+            let cutoff = &mut self.scratch_buffer.cutoff;
+            let resonance = &mut self.scratch_buffer.resonance;
+            let gain = &mut self.scratch_buffer.gain;
 
             self.params
             .cutoff.smoothed.next_block(cutoff, block_len);
@@ -203,9 +208,11 @@ impl Plugin for MaerorChorus {
 
                     self.filter.coefficients(filter_type, cutoff1, resonance1, gain1);
                     if channel == 0 {
-                        *sample = self.filter.process_left(*sample)
+                        *sample = self.filter.process_left(*sample);
+                        *sample = self.output_hpf.process_left(*sample);
                     } else {
-                        *sample = self.filter.process_right(*sample)
+                        *sample = self.filter.process_right(*sample);
+                        *sample = self.output_hpf.process_right(*sample);
                     }
                 }
             }
@@ -254,7 +261,7 @@ impl Plugin for MaerorChorus {
     }
 }
 
-impl ClapPlugin for MaerorChorus {
+impl ClapPlugin for FilterPlugin {
     const CLAP_ID: &'static str = "{{ cookiecutter.clap_id }}";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("{{ cookiecutter.description }}");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
@@ -264,8 +271,8 @@ impl ClapPlugin for MaerorChorus {
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Stereo];
 }
 
-impl Vst3Plugin for MaerorChorus {
-    const VST3_CLASS_ID: [u8; 16] = *b"MaerorChorsRvdH.";
+impl Vst3Plugin for FilterPlugin {
+    const VST3_CLASS_ID: [u8; 16] = *b"tsk__FilterRvdH.";
 
     // And also don't forget to change these categories
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
@@ -273,4 +280,4 @@ impl Vst3Plugin for MaerorChorus {
 }
 
 //nih_export_clap!(MaerorChorus);
-nih_export_vst3!(MaerorChorus);
+nih_export_vst3!(FilterPlugin);

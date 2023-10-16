@@ -7,12 +7,12 @@ use nih_plug_vizia::widgets::*;
 use nih_plug_vizia::{assets, create_vizia_editor, ViziaState, ViziaTheming};
 
 
-use crate::MaerorFilterParams;
+use crate::FilterPluginParams;
 
 
 #[derive(Lens)]
 struct Data {
-    filter_data: Arc<MaerorFilterParams>
+    filter_data: Arc<FilterPluginParams>
 }
 
 impl Model for Data {}
@@ -22,7 +22,7 @@ pub(crate) fn default_state() -> Arc<ViziaState> {
 }
 
 pub(crate) fn create(
-    filter_data: Arc<MaerorFilterParams>,
+    filter_data: Arc<FilterPluginParams>,
     editor_state: Arc<ViziaState>,
 ) -> Option<Box<dyn Editor>> {
     create_vizia_editor(editor_state, 
