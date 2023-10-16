@@ -11,106 +11,130 @@ mod lfo;
 mod editor;
 mod chorus;
 mod filter;
+mod comb;
+mod delayingallpass;
+mod reverb;
 
 const MAX_BLOCK_SIZE: usize = 64;
 
-struct FilterPlugin {
-    params: Arc<FilterPluginParams>,
+struct ReverbPlugin {
+    params: Arc<ReverbPluginParams>,
+    comb_reverb: reverb::Reverb,
+    schroeder_reverb: reverb::Reverb,
+    lpf_comb_reverb: reverb::Reverb,
+    lpf_schroeder_reverb: reverb::Reverb,
     sample_rate: f32,
-    filter: filter::BiquadFilter,
-    prev_filter_type : filter::FilterType,
-    scratch_buffer: ScratchBuffer,
-
-    output_hpf: filter::BiquadFilter,
 }
 
-struct ScratchBuffer {
-    cutoff: [f32; MAX_BLOCK_SIZE],
-    resonance: [f32; MAX_BLOCK_SIZE],
-    gain: [f32; MAX_BLOCK_SIZE],
-}
+// struct ScratchBuffer {
+//     cutoff: [f32; MAX_BLOCK_SIZE],
+//     resonance: [f32; MAX_BLOCK_SIZE],
+//     gain: [f32; MAX_BLOCK_SIZE],
+// }
 
-impl Default for ScratchBuffer {
-    fn default() -> Self {
-        Self {
-            cutoff: [0.0; MAX_BLOCK_SIZE],
-            resonance: [0.0; MAX_BLOCK_SIZE],
-            gain: [0.0; MAX_BLOCK_SIZE],
-        }
-    }
-}
+// impl Default for ScratchBuffer {
+//     fn default() -> Self {
+//         Self {
+//             cutoff: [0.0; MAX_BLOCK_SIZE],
+//             resonance: [0.0; MAX_BLOCK_SIZE],
+//             gain: [0.0; MAX_BLOCK_SIZE],
+//         }
+//     }
+// }
 
 #[derive(Params)]
-struct FilterPluginParams {
+struct ReverbPluginParams {
     #[persist = "editor-state"]
     editor_state: Arc<ViziaState>,
 
-    #[id = "FilterType"]
-    filter_type: EnumParam<filter::FilterType>,
+    #[id = "reverb-type"]
+    reverb_type: EnumParam<reverb::ReverbType>,
 
-    #[id = "Cutoff"]
-    cutoff: FloatParam,
+    #[id = "decay"]
+    decay: FloatParam,
 
-    #[id = "Resonance"]
-    resonance: FloatParam,
+    #[id = "damping"]
+    damping: FloatParam,
 
-    #[id = "Gain"]
-    gain: FloatParam,
+    #[id = "comb type"]
+    comb_type: EnumParam<comb::CombType>,
+
+    #[id = "wet"]
+    wet: FloatParam,
+
+    #[id = "dry"]
+    dry: FloatParam,
 }
 
-impl Default for FilterPlugin {
+impl Default for ReverbPlugin {
     fn default() -> Self {
         Self {
-            params: Arc::new(FilterPluginParams::default()),
+            params: Arc::new(ReverbPluginParams::default()),
             sample_rate: 44100.0,
-            filter: filter::BiquadFilter::new(),
-            prev_filter_type: filter::FilterType::LowPass1,
-            scratch_buffer: ScratchBuffer::default(),
-            output_hpf: filter::BiquadFilter::new(),
+            comb_reverb: reverb::Reverb::new(
+                44100.0,
+                100.0,
+                reverb::ReverbType::Comb,
+                0.0,
+            ),
+            schroeder_reverb: reverb::Reverb::new(
+                44100.0,
+                100.0,
+                reverb::ReverbType::Schroeder,
+                0.0,
+            ),
+            lpf_comb_reverb: reverb::Reverb::new(
+                44100.0,
+                100.0,
+                reverb::ReverbType::Comb,
+                0.2,
+            ),
+            lpf_schroeder_reverb: reverb::Reverb::new(
+                44100.0,
+                100.0,
+                reverb::ReverbType::Schroeder,
+                0.2,
+            ),
         }
     }
 }
 
-impl Default for FilterPluginParams {
+impl Default for ReverbPluginParams {
     fn default() -> Self {
         Self {
             editor_state: editor::default_state(),
+            reverb_type: EnumParam::new("Reverb Type", reverb::ReverbType::Comb),
 
-            filter_type: EnumParam::new("Filter Type", filter::FilterType::LowPass1),
-
-            // cutoff parameter in Hz, from 20 to 20k
-            cutoff: FloatParam::new("Cutoff", 5000.0, FloatRange::Skewed { min: 20.0, max: 20000.0, factor: 0.5 } )
-            .with_unit("")
+            decay: FloatParam::new("Decay", 250.0, FloatRange::Skewed { min: 100.0, max: 20000.0, factor: 0.3 })
+            .with_unit("ms")
             .with_smoother(SmoothingStyle::Linear(10.0))
-            .with_value_to_string(formatters::v2s_f32_hz_then_khz(1))
-            .with_string_to_value(formatters::s2v_f32_hz_then_khz()),
-
-            // resonance parameter from 0 to 30
-            resonance: FloatParam::new("Resonance", 0.707, FloatRange::Linear { min: 0.5, max: 30.0 })
-            .with_smoother(SmoothingStyle::Linear(10.0))
-            .with_unit("")
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
-            // gain parameter from -30dB to 30dB
-            gain: FloatParam::new(
-                "Gain",
-                util::db_to_gain(0.0),
-                FloatRange::Skewed {
-                    min: util::db_to_gain(-30.0),
-                    max: util::db_to_gain(30.0),
-                    factor: FloatRange::gain_skew_factor(-30.0, 30.0),
-                },
-            )
-            .with_smoother(SmoothingStyle::Logarithmic(50.0))
-            .with_unit(" dB")
-            .with_value_to_string(formatters::v2s_f32_gain_to_db(2))
-            .with_string_to_value(formatters::s2v_f32_gain_to_db()),
+            damping: FloatParam::new("Damping", 0.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+            .with_unit("%")
+            .with_smoother(SmoothingStyle::Linear(10.0))
+            .with_value_to_string(formatters::v2s_f32_percentage(2))
+            .with_string_to_value(formatters::s2v_f32_percentage()),
+
+            comb_type: EnumParam::new("Comb Type", comb::CombType::Positive),
+
+            wet: FloatParam::new("Wet", 0.25, FloatRange::Linear { min: 0.0, max: 1.0 })
+            .with_unit("%")
+            .with_smoother(SmoothingStyle::Linear(10.0))
+            .with_value_to_string(formatters::v2s_f32_percentage(2))
+            .with_string_to_value(formatters::s2v_f32_percentage()),
+
+            dry: FloatParam::new("Dry", 1.0, FloatRange::Linear { min: 0.0, max: 1.0 })
+            .with_unit("%")
+            .with_smoother(SmoothingStyle::Linear(10.0))
+            .with_value_to_string(formatters::v2s_f32_percentage(2))
+            .with_string_to_value(formatters::s2v_f32_percentage()),
         }
     }
 }
 
-impl Plugin for FilterPlugin {
-    const NAME: &'static str = "tsk biquad filter";
+impl Plugin for ReverbPlugin {
+    const NAME: &'static str = "tsk reverb";
     const VENDOR: &'static str = "236587 & 236598";
     const URL: &'static str = "none";
     const EMAIL: &'static str = "none";
@@ -151,10 +175,10 @@ impl Plugin for FilterPlugin {
         _context: &mut impl InitContext<Self>,
     ) -> bool {
         self.sample_rate = _buffer_config.sample_rate as f32;
-
-        self.filter.set_sample_rate(self.sample_rate);
-        self.output_hpf.set_sample_rate(self.sample_rate);
-        self.output_hpf.coefficients(FilterType::HighPass2, 25.0, 0.707, 1.0);
+        self.comb_reverb.resize_buffers(self.sample_rate);
+        self.schroeder_reverb.resize_buffers(self.sample_rate);
+        self.lpf_comb_reverb.resize_buffers(self.sample_rate);
+        self.lpf_schroeder_reverb.resize_buffers(self.sample_rate);
         // Resize buffers and perform other potentially expensive initialization operations here.
         // The `reset()` function is always called right after this function. You can remove this
         // function if you do not need it.
@@ -173,82 +197,74 @@ impl Plugin for FilterPlugin {
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
 
-        for (_, block) in buffer.iter_blocks(MAX_BLOCK_SIZE) {
-            let block_len = block.samples();
-            
-            let filter_type = self.params.filter_type.value();
-
-            let cutoff = &mut self.scratch_buffer.cutoff;
-            let resonance = &mut self.scratch_buffer.resonance;
-            let gain = &mut self.scratch_buffer.gain;
-
-            self.params
-            .cutoff.smoothed.next_block(cutoff, block_len);
-
-            self.params
-            .resonance.smoothed.next_block(resonance, block_len);
-
-            self.params
-            .gain.smoothed.next_block(gain, block_len);
-
-            if filter_type != self.prev_filter_type {
-                self.prev_filter_type = filter_type;
-                self.filter.reset_filter();
-            }
-
-            for (channel, block_channel) in block.into_iter().enumerate() {
-                for (num, sample) in block_channel.into_iter().enumerate() {
-                    let cutoff1 = cutoff[num];
-                    let mut resonance1 = resonance[num];
-                    let gain1 = gain[num];
-
-                    if filter_type == FilterType::SecondOrderAllPass {
-                        resonance1 = resonance1.clamp(1.0, 1000.0);
-                    }
-
-                    self.filter.coefficients(filter_type, cutoff1, resonance1, gain1);
-                    if channel == 0 {
-                        *sample = self.filter.process_left(*sample);
-                        *sample = self.output_hpf.process_left(*sample);
-                    } else {
-                        *sample = self.filter.process_right(*sample);
-                        *sample = self.output_hpf.process_right(*sample);
-                    }
-                }
-            }
-        }
-
+        
         // In current configuration this function iterates as follows:
         // 1. outer loop iterates block-size times
         // 2. inner loop iterates channel-size times. 
 
-        // for (i, channel_samples) in buffer.iter_samples().enumerate() {
-        //     // Smoothing is optionally built into the parameters themselves
-        //     // let gain = self.params.gain.smoothed.next();
-        //     let filter_type = self.params.filter_type.value();
-        //     let cutoff = self.params.cutoff.smoothed.next();
-        //     let mut resonance = self.params.resonance.smoothed.next();
-        //     let gain = self.params.gain.smoothed.next();
+        for (i, channel_samples) in buffer.iter_samples().enumerate() {
+            // Smoothing is optionally built into the parameters themselves
+            // let gain = self.params.gain.smoothed.next();
+            let reverb_type = self.params.reverb_type.value();
+            let comb_type = self.params.comb_type.value();
+            let decay = self.params.decay.smoothed.next();
+            let damping = self.params.damping.smoothed.next();
+            let wet = self.params.wet.smoothed.next();
+            let dry = self.params.dry.smoothed.next();
 
-        //     if filter_type != self.prev_filter_type {
-        //         self.prev_filter_type = filter_type;
-        //         self.filter.reset_filter();
-        //     }
+            match reverb_type {
+                reverb::ReverbType::Comb => {
+                    self.comb_reverb.set_params_comb(decay, comb_type);
+                },
+                reverb::ReverbType::Schroeder => {
+                    self.schroeder_reverb.set_params_schroeder(decay, damping, comb_type)
+                },
+                reverb::ReverbType::LpfComb => {
+                    self.lpf_comb_reverb.set_params_lpfcomb(decay, damping, comb_type);
+                },
+                reverb::ReverbType::Moorer => {
+                    self.lpf_schroeder_reverb.set_params_moorer(decay, damping, comb_type)
+                },
+            };
 
-        //     if filter_type == FilterType::SecondOrderAllPass {
-        //         resonance = resonance.clamp(1.0, 1000.0)
-        //     }
-
-        //     self.filter.coefficients(filter_type, cutoff, resonance, gain);
-
-        //     for (num, sample) in channel_samples.into_iter().enumerate() {
-        //         if num == 0 {
-        //             *sample = self.filter.process_left(*sample)
-        //         } else {
-        //             *sample = self.filter.process_right(*sample)
-        //         }
-        //     }
-        // }
+            for (num, sample) in channel_samples.into_iter().enumerate() {
+                if num == 0 {
+                    match reverb_type {
+                        reverb::ReverbType::Comb => {
+                            *sample = *sample * dry + wet * self.comb_reverb.process_left(*sample)
+                        },
+                        reverb::ReverbType::Schroeder => {
+                            *sample = *sample * dry + wet * self.schroeder_reverb.process_left(*sample)
+                        },
+                        reverb::ReverbType::LpfComb => {
+                            *sample = *sample * dry + wet * self.lpf_comb_reverb.process_left(*sample)
+                        },
+                        reverb::ReverbType::Moorer => {
+                            *sample = *sample * dry + wet * self.lpf_schroeder_reverb.process_left(*sample)
+                        },
+                    }
+                } else {
+                    match reverb_type {
+                        reverb::ReverbType::Comb => {
+                            *sample = *sample * dry + wet * self.comb_reverb.process_right(*sample)
+                        },
+                        reverb::ReverbType::Schroeder => {
+                            *sample = *sample * dry + wet * self.schroeder_reverb.process_right(*sample)
+                        },
+                        reverb::ReverbType::LpfComb => {
+                            *sample = *sample * dry + wet * self.lpf_comb_reverb.process_right(*sample)
+                        },
+                        reverb::ReverbType::Moorer => {
+                            *sample = *sample * dry + wet * self.lpf_schroeder_reverb.process_right(*sample)
+                        },
+                    }
+                }
+                
+                if dry + wet > 1.0 {
+                    *sample = *sample / (dry + wet);
+                }
+            }
+        }
 
         ProcessStatus::Normal
     }
@@ -261,7 +277,7 @@ impl Plugin for FilterPlugin {
     }
 }
 
-impl ClapPlugin for FilterPlugin {
+impl ClapPlugin for ReverbPlugin {
     const CLAP_ID: &'static str = "{{ cookiecutter.clap_id }}";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("{{ cookiecutter.description }}");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
@@ -271,13 +287,13 @@ impl ClapPlugin for FilterPlugin {
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Stereo];
 }
 
-impl Vst3Plugin for FilterPlugin {
-    const VST3_CLASS_ID: [u8; 16] = *b"tsk__FilterRvdH.";
+impl Vst3Plugin for ReverbPlugin {
+    const VST3_CLASS_ID: [u8; 16] = *b"tsk__ReverbRvdH.";
 
     // And also don't forget to change these categories
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Filter];
+        &[Vst3SubCategory::Reverb];
 }
 
 //nih_export_clap!(MaerorChorus);
-nih_export_vst3!(FilterPlugin);
+nih_export_vst3!(ReverbPlugin);
