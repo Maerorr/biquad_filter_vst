@@ -12,11 +12,30 @@ mod editor;
 mod chorus;
 mod filter;
 
+const MAX_BLOCK_SIZE: usize = 64;
+
 struct MaerorChorus {
     params: Arc<MaerorFilterParams>,
     sample_rate: f32,
     filter: filter::BiquadFilter,
     prev_filter_type : filter::FilterType,
+    scratch_buffer: ScratchBuffer,
+}
+
+struct ScratchBuffer {
+    cutoff: [f32; MAX_BLOCK_SIZE],
+    resonance: [f32; MAX_BLOCK_SIZE],
+    gain: [f32; MAX_BLOCK_SIZE],
+}
+
+impl Default for ScratchBuffer {
+    fn default() -> Self {
+        Self {
+            cutoff: [0.0; MAX_BLOCK_SIZE],
+            resonance: [0.0; MAX_BLOCK_SIZE],
+            gain: [0.0; MAX_BLOCK_SIZE],
+        }
+    }
 }
 
 #[derive(Params)]
@@ -44,6 +63,7 @@ impl Default for MaerorChorus {
             sample_rate: 44100.0,
             filter: filter::BiquadFilter::new(),
             prev_filter_type: filter::FilterType::LowPass1,
+            scratch_buffer: ScratchBuffer::default(),
         }
     }
 }
@@ -58,11 +78,13 @@ impl Default for MaerorFilterParams {
             // cutoff parameter in Hz, from 20 to 20k
             cutoff: FloatParam::new("Cutoff", 5000.0, FloatRange::Skewed { min: 20.0, max: 20000.0, factor: 0.5 } )
             .with_unit("")
+            .with_smoother(SmoothingStyle::Linear(10.0))
             .with_value_to_string(formatters::v2s_f32_hz_then_khz(1))
             .with_string_to_value(formatters::s2v_f32_hz_then_khz()),
 
             // resonance parameter from 0 to 30
             resonance: FloatParam::new("Resonance", 0.707, FloatRange::Linear { min: 0.5, max: 30.0 })
+            .with_smoother(SmoothingStyle::Linear(10.0))
             .with_unit("")
             .with_value_to_string(formatters::v2s_f32_rounded(2)),
 
@@ -146,37 +168,80 @@ impl Plugin for MaerorChorus {
         _context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
 
-        // In current configuration this function iterates as follows:
-        // 1. outer loop iterates block-size times
-        // 2. inner loop iterates channel-size times. 
-
-        for (i, channel_samples) in buffer.iter_samples().enumerate() {
-            // Smoothing is optionally built into the parameters themselves
-            // let gain = self.params.gain.smoothed.next();
+        for (_, block) in buffer.iter_blocks(MAX_BLOCK_SIZE) {
+            let block_len = block.samples();
+            
             let filter_type = self.params.filter_type.value();
-            let cutoff = self.params.cutoff.smoothed.next();
-            let mut resonance = self.params.resonance.smoothed.next();
-            let gain = self.params.gain.smoothed.next();
+
+            let mut cutoff = &mut self.scratch_buffer.cutoff;
+            let mut resonance = &mut self.scratch_buffer.resonance;
+            let mut gain = &mut self.scratch_buffer.gain;
+
+            self.params
+            .cutoff.smoothed.next_block(cutoff, block_len);
+
+            self.params
+            .resonance.smoothed.next_block(resonance, block_len);
+
+            self.params
+            .gain.smoothed.next_block(gain, block_len);
 
             if filter_type != self.prev_filter_type {
                 self.prev_filter_type = filter_type;
                 self.filter.reset_filter();
             }
 
-            if filter_type == FilterType::SecondOrderAllPass {
-                resonance = resonance.clamp(1.0, 1000.0)
-            }
+            for (channel, block_channel) in block.into_iter().enumerate() {
+                for (num, sample) in block_channel.into_iter().enumerate() {
+                    let cutoff1 = cutoff[num];
+                    let mut resonance1 = resonance[num];
+                    let gain1 = gain[num];
 
-            self.filter.coefficients(filter_type, cutoff, resonance, gain);
+                    if filter_type == FilterType::SecondOrderAllPass {
+                        resonance1 = resonance1.clamp(1.0, 1000.0);
+                    }
 
-            for (num, sample) in channel_samples.into_iter().enumerate() {
-                if num == 0 {
-                    *sample = self.filter.process_left(*sample)
-                } else {
-                    *sample = self.filter.process_right(*sample)
+                    self.filter.coefficients(filter_type, cutoff1, resonance1, gain1);
+                    if channel == 0 {
+                        *sample = self.filter.process_left(*sample)
+                    } else {
+                        *sample = self.filter.process_right(*sample)
+                    }
                 }
             }
         }
+
+        // In current configuration this function iterates as follows:
+        // 1. outer loop iterates block-size times
+        // 2. inner loop iterates channel-size times. 
+
+        // for (i, channel_samples) in buffer.iter_samples().enumerate() {
+        //     // Smoothing is optionally built into the parameters themselves
+        //     // let gain = self.params.gain.smoothed.next();
+        //     let filter_type = self.params.filter_type.value();
+        //     let cutoff = self.params.cutoff.smoothed.next();
+        //     let mut resonance = self.params.resonance.smoothed.next();
+        //     let gain = self.params.gain.smoothed.next();
+
+        //     if filter_type != self.prev_filter_type {
+        //         self.prev_filter_type = filter_type;
+        //         self.filter.reset_filter();
+        //     }
+
+        //     if filter_type == FilterType::SecondOrderAllPass {
+        //         resonance = resonance.clamp(1.0, 1000.0)
+        //     }
+
+        //     self.filter.coefficients(filter_type, cutoff, resonance, gain);
+
+        //     for (num, sample) in channel_samples.into_iter().enumerate() {
+        //         if num == 0 {
+        //             *sample = self.filter.process_left(*sample)
+        //         } else {
+        //             *sample = self.filter.process_right(*sample)
+        //         }
+        //     }
+        // }
 
         ProcessStatus::Normal
     }
