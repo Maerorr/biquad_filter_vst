@@ -18,7 +18,7 @@ struct Data {
 impl Model for Data {}
 
 pub(crate) fn default_state() -> Arc<ViziaState> {
-    ViziaState::new(|| (400, 300))
+    ViziaState::new(|| (400, 200))
 }
 
 pub(crate) fn create(

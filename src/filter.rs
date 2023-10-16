@@ -412,10 +412,10 @@ impl BiquadFilter {
                 self.second_order_allpass_coefficients(self.sample_rate, cutoff, q);
             },
             FilterType::LowShelf => {
-                self.low_shelf_coefficients(self.sample_rate, cutoff, q);
+                self.low_shelf_coefficients(self.sample_rate, cutoff, gain);
             },
             FilterType::HighShelf => {
-                self.high_shelf_coefficients(self.sample_rate, cutoff, q);
+                self.high_shelf_coefficients(self.sample_rate, cutoff, gain);
             }
             FilterType::Peak => {
                 self.peak_coefficients(self.sample_rate, cutoff, q, gain);
