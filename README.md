@@ -1,9 +1,9 @@
-# {{ cookiecutter.plugin_name }}
+# biquad filter
 
 ## Building
 
-After installing [Rust](https://rustup.rs/), you can compile {{ cookiecutter.plugin_name }} as follows:
+After installing [Rust](https://rustup.rs/), you can compile biquad filter as follows:
 
 ```shell
-cargo xtask bundle {{ cookiecutter.project_name }} --release
+cargo xtask bundle maeror_filter --release
 ```
