@@ -7,22 +7,22 @@ use nih_plug_vizia::widgets::*;
 use nih_plug_vizia::{assets, create_vizia_editor, ViziaState, ViziaTheming};
 
 
-use crate::ReverbPluginParams;
+use crate::FilterPluginParams;
 
 
 #[derive(Lens)]
 struct Data {
-    filter_data: Arc<ReverbPluginParams>
+    filter_data: Arc<FilterPluginParams>
 }
 
 impl Model for Data {}
 
 pub(crate) fn default_state() -> Arc<ViziaState> {
-    ViziaState::new(|| (400, 300))
+    ViziaState::new(|| (400, 200))
 }
 
 pub(crate) fn create(
-    filter_data: Arc<ReverbPluginParams>,
+    filter_data: Arc<FilterPluginParams>,
     editor_state: Arc<ViziaState>,
 ) -> Option<Box<dyn Editor>> {
     create_vizia_editor(editor_state, 
@@ -37,7 +37,7 @@ pub(crate) fn create(
             ResizeHandle::new(cx);
 
             VStack::new(cx, |cx| {
-                Label::new(cx, "REVERB")
+                Label::new(cx, "BIQUAD FILTER")
                 .font_family(vec![FamilyOwned::Name(String::from(
                     assets::NOTO_SANS_THIN,
                 ))])
@@ -48,49 +48,31 @@ pub(crate) fn create(
                 
                 HStack::new(cx, |cx| {
                     VStack::new(cx, |cx| {
-                        Label::new(cx, "reverb type")
-                        .font_size(15.0)
+                        Label::new(cx, "filter type").font_size(15.0)
                         .height(Pixels(30.0));
-
-                        Label::new(cx, "decay")
-                        .font_size(15.0)
+    
+                        Label::new(cx, "cutoff").font_size(15.0)
                         .height(Pixels(30.0));
-
-                        Label::new(cx, "damping")
-                        .font_size(15.0)
+    
+                        Label::new(cx, "resonance").font_size(15.0)
                         .height(Pixels(30.0));
-
-                        Label::new(cx, "comb type")
-                        .font_size(15.0)
+    
+                        Label::new(cx, "gain").font_size(15.0)
                         .height(Pixels(30.0));
-
-                        Label::new(cx, "wet")
-                        .font_size(15.0)
-                        .height(Pixels(30.0));
-
-                        Label::new(cx, "dry")
-                        .font_size(15.0)
-                        .height(Pixels(30.0));
-
+    
                     }).child_top(Pixels(6.0));
     
                     VStack::new(cx, |cx| {
-                        ParamSlider::new(cx, Data::filter_data, |params| &params.reverb_type)
+                        ParamSlider::new(cx, Data::filter_data, |params| &params.filter_type)
+                        .height(Pixels(30.0));
+                    
+                        ParamSlider::new(cx, Data::filter_data, |params| &params.cutoff)
                         .height(Pixels(30.0));
 
-                        ParamSlider::new(cx, Data::filter_data, |params| &params.decay)
+                        ParamSlider::new(cx, Data::filter_data, |params| &params.resonance)
                         .height(Pixels(30.0));
 
-                        ParamSlider::new(cx, Data::filter_data, |params| &params.damping)
-                        .height(Pixels(30.0));
-
-                        ParamSlider::new(cx, Data::filter_data, |params| &params.comb_type)
-                        .height(Pixels(30.0));
-
-                        ParamSlider::new(cx, Data::filter_data, |params| &params.wet)
-                        .height(Pixels(30.0));
-
-                        ParamSlider::new(cx, Data::filter_data, |params| &params.dry)
+                        ParamSlider::new(cx, Data::filter_data, |params| &params.gain)
                         .height(Pixels(30.0));
                     });
                 }).col_between(Pixels(30.0));

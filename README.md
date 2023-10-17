@@ -1,9 +1,9 @@
-# reverb
+# biquad filter
 
 ## Building
 
-After installing [Rust](https://rustup.rs/), you can compile reverb as follows:
+After installing [Rust](https://rustup.rs/), you can compile biquad filter as follows:
 
 ```shell
-cargo xtask bundle reverb --release
+cargo xtask bundle maeror_filter --release
 ```

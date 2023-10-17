@@ -1,11 +1,11 @@
 [package]
-name = "reverb"
+name = "biquad_filter"
 version = "0.1.0"
 edition = "2021"
 authors = ["236587&236598"]
 license = " "
 homepage = " "
-description = "reverb plugin using the most basic reverb algorithms including allpass, comb and Schroeder"
+description = "a simple filter using biquad structure"
 
 [workspace]
 members = ["xtask"]
